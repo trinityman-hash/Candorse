@@ -1,9 +1,11 @@
 .godot/
 *.translation
-export.cfg
-export_presets.cfg
 *.tmp
 .DS_Store
 android/build/
 ios/build/
 *.xcodeproj
+
+# export_presets.cfg is intentionally tracked (not ignored) — it holds the
+# Candorse bundle ID / app name config so a fresh clone exports correctly
+# without needing to be reconfigured. It contains no secrets/keys.
