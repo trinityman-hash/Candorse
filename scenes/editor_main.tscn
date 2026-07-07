@@ -1,0 +1,24 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/timeline_stage.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/ui/timeline_ui.gd" id="2"]
+
+[node name="EditorMain" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="TimelineStage" parent="." instance=ExtResource("1")]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 0.6
+
+[node name="TimelineUI" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_top = 0.6
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("2")

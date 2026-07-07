@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/camera/timeline_camera.gd" id="1"]
+
+[node name="TimelineStage" type="SubViewportContainer"]
+stretch = true
+
+[node name="SubViewport" type="SubViewport" parent="."]
+handle_input_locally = false
+size = Vector2i(1080, 1080)
+render_target_update_mode = 4
+
+[node name="TrackRoot" type="Node3D" parent="SubViewport"]
+# Module A: track meshes are instanced here at runtime by the timeline
+# controller, keyed off TimelineData.tracks. Nothing is hand-placed here.
+
+[node name="TimelineCamera" type="Camera3D" parent="SubViewport"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 8)
+projection = 1
+size = 5.0
+script = ExtResource("1")
+mode = 0
+
+[node name="KeyLight" type="DirectionalLight3D" parent="SubViewport"]
+transform = Transform3D(0.866, -0.25, 0.433, 0, 0.866, 0.5, -0.5, -0.433, 0.75, 0, 5, 5)
+light_energy = 0.8
+# Phase 1: single default light so Module D's real-shadow path has something
+# to fall back on before lighting rigs (Phase 2) exist. EDIT mode is
+# unshaded per video_compositor.gdshader today, so this has no visible
+# effect yet — left in place so Phase 2 doesn't need to re-wire the scene.
