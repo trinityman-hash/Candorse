@@ -1,13 +1,16 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/timeline_stage.tscn" id="1"]
 [ext_resource type="Script" path="res://scripts/ui/timeline_ui.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/ui/scene_roam_ui.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/ui/editor_root.gd" id="4"]
 
 [node name="EditorMain" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+script = ExtResource("4")
 
 [node name="TimelineStage" parent="." instance=ExtResource("1")]
 layout_mode = 1
@@ -22,3 +25,94 @@ anchor_top = 0.6
 anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("2")
+
+[node name="VBox" type="VBoxContainer" parent="TimelineUI"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="TransportRow" type="HBoxContainer" parent="TimelineUI/VBox"]
+layout_mode = 2
+
+[node name="PlayButton" type="Button" parent="TimelineUI/VBox/TransportRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Play"
+
+[node name="ScrubBar" type="HSlider" parent="TimelineUI/VBox/TransportRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 120.0
+step = 0.01
+
+[node name="AddTrackButton" type="Button" parent="TimelineUI/VBox/TransportRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Add Track"
+
+[node name="EnterSceneButton" type="Button" parent="TimelineUI/VBox/TransportRow"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Enter Scene"
+
+[node name="TrackListScroll" type="ScrollContainer" parent="TimelineUI/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TrackList" type="VBoxContainer" parent="TimelineUI/VBox/TrackListScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="SceneRoamUI" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 1
+script = ExtResource("3")
+
+[node name="Toolbar" type="HBoxContainer" parent="SceneRoamUI"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_top = 12.0
+offset_left = 12.0
+
+[node name="ExitSceneButton" type="Button" parent="SceneRoamUI/Toolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Exit Scene"
+
+[node name="AddLightButton" type="Button" parent="SceneRoamUI/Toolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Add Lighting Rig"
+
+[node name="AddFogButton" type="Button" parent="SceneRoamUI/Toolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Add Fog"
+
+[node name="AddPrimitiveButton" type="Button" parent="SceneRoamUI/Toolbar"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Add Primitive"
+
+[node name="SnapFlatButton" type="Button" parent="SceneRoamUI"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -140.0
+offset_top = -50.0
+offset_right = -12.0
+offset_bottom = -12.0
+text = "Snap to Flat"
+# Module I: always-available one-tap reset, positioned separately from the
+# main toolbar so it's reachable even if other roam UI is mid-transition.
