@@ -1,17 +1,21 @@
 extends Control
 ## Module I: this is the "Timeline/Trim UI" surface — 2D, familiar,
-## CapCut-like. Never mixes 3D roam controls into this scene (Phase 2
-## keeps those on a separate "Scene/Roam UI" entered explicitly).
+## CapCut-like. Never mixes 3D roam controls into this scene. The
+## "Enter Scene" button below is the ONLY bridge to Phase 2's
+## Scene/Roam UI — everything else stays flat here by design.
 ##
 ## Phase 1 scope: play/pause, scrub, add/remove track, trim in/out,
 ## split, ripple-delete, drag-reorder. All of it mutates TimelineData,
 ## never touches TimelineStage nodes directly (Module A single-source-
 ## of-truth rule).
 
+signal enter_scene_requested()
+
 @onready var _play_button: Button = %PlayButton
 @onready var _scrub_bar: HSlider = %ScrubBar
 @onready var _track_list: VBoxContainer = %TrackList
 @onready var _add_track_button: Button = %AddTrackButton
+@onready var _enter_scene_button: Button = %EnterSceneButton
 
 var _is_playing: bool = false
 var _playhead_seconds: float = 0.0
@@ -26,6 +30,7 @@ func _ready() -> void:
 	_add_track_button.pressed.connect(_on_add_track_pressed)
 	_play_button.pressed.connect(_on_play_pressed)
 	_scrub_bar.value_changed.connect(_on_scrub_changed)
+	_enter_scene_button.pressed.connect(func(): enter_scene_requested.emit())
 
 func _on_add_track_pressed() -> void:
 	var td = get_node("/root/TimelineData")
