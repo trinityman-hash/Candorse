@@ -50,41 +50,63 @@ func _on_track_removed(track_id: int) -> void:
 			child.queue_free()
 
 func _build_track_row(track) -> Control:
-	var row := HBoxContainer.new()
-	row.set_meta("track_id", track.id)
+	var container := VBoxContainer.new()
+	container.set_meta("track_id", track.id)
+
+	var header := HBoxContainer.new()
+	container.add_child(header)
 
 	var label := Label.new()
 	label.text = "%s track #%d" % [track.kind.capitalize(), track.id]
-	row.add_child(label)
+	header.add_child(label)
+
+	var add_clip_btn := Button.new()
+	add_clip_btn.text = "Add Test Clip"
+	add_clip_btn.tooltip_text = "Placeholder clip for layout/interaction testing until media import (Module B) lands"
+	add_clip_btn.pressed.connect(func(): _add_test_clip(track.id))
+	header.add_child(add_clip_btn)
 
 	var split_btn := Button.new()
 	split_btn.text = "Split"
 	split_btn.tooltip_text = "Split the clip under the playhead into two clips"
 	split_btn.pressed.connect(func(): _split_at_playhead(track.id))
-	row.add_child(split_btn)
+	header.add_child(split_btn)
 
 	var ripple_delete_btn := Button.new()
 	ripple_delete_btn.text = "Ripple Delete"
 	ripple_delete_btn.tooltip_text = "Remove the clip under the playhead and shift later clips left"
 	ripple_delete_btn.pressed.connect(func(): _ripple_delete_at_playhead(track.id))
-	row.add_child(ripple_delete_btn)
+	header.add_child(ripple_delete_btn)
 
 	var remove_btn := Button.new()
 	remove_btn.text = "Remove Track"
 	remove_btn.pressed.connect(func():
 		get_node("/root/TimelineData").remove_track(track.id)
 	)
-	row.add_child(remove_btn)
+	header.add_child(remove_btn)
 
-	# TODO Phase 1 remainder: drag-to-trim in/out handles and drag-reorder
-	# still need real drag gestures on a rendered clip strip (this row is
-	# currently a text-only stand-in with no clip visualization). Split
-	# and ripple-delete above operate on "the clip under the playhead" as
-	# an interim interaction model until clips are actually drawn/draggable
-	# here. Snap thresholds, when drag lands, must be computed in
-	# timeline-seconds via the scrub bar's seconds-per-pixel ratio, not
-	# raw pixel deltas, per Module A.
-	return row
+	var strip := TimelineTrackStrip.new()
+	strip.track_id = track.id
+	container.add_child(strip)
+
+	# Drag-to-trim (in/out) and drag-to-reposition are handled inside
+	# TimelineTrackStrip; nothing left here for Module A's "Phase 1
+	# remainder" TODO beyond media import actually producing real clips
+	# instead of the placeholder below.
+	return container
+
+## Placeholder clip generator so the draggable strip has something to
+## interact with before Module B media import exists. Real "Add Clip"
+## should open a media picker and call TimelineData.add_clip with an
+## actual source path/in/out — this is scoped explicitly to UI/interaction
+## testing, not a stand-in for that feature.
+func _add_test_clip(track_id: int) -> void:
+	var td = get_node("/root/TimelineData")
+	var existing_end := 0.0
+	if td.tracks.has(track_id):
+		for clip in td.tracks[track_id].clips:
+			existing_end = max(existing_end, clip.start_time + clip.duration())
+	td.add_clip(track_id, "res://test_media/placeholder.ogv", 0.0, 3.0, existing_end)
 
 func _split_at_playhead(track_id: int) -> void:
 	var td = get_node("/root/TimelineData")

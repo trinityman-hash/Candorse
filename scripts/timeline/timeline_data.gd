@@ -199,6 +199,62 @@ func remove_clip(track_id: int, clip_id: int, ripple: bool = false) -> void:
 
 	_commit(do, undo, "remove_clip")
 
+## Moves a clip to a new start_time on the same track (drag-reorder per
+## Module A). Does not touch in/out points.
+func move_clip(track_id: int, clip_id: int, new_start_time: float) -> void:
+	if not tracks.has(track_id):
+		return
+	var clip: Clip = tracks[track_id].find_clip(clip_id)
+	if clip == null:
+		return
+	new_start_time = max(0.0, new_start_time)
+	var old_start := clip.start_time
+
+	var do := func():
+		var c: Clip = tracks[track_id].find_clip(clip_id)
+		c.start_time = new_start_time
+		track_changed.emit(tracks[track_id])
+
+	var undo := func():
+		var c: Clip = tracks[track_id].find_clip(clip_id)
+		c.start_time = old_start
+		track_changed.emit(tracks[track_id])
+
+	_commit(do, undo, "move_clip")
+
+## Trims the clip's LEFT edge: changes in_point while shifting start_time
+## by the same delta, so the clip's end position on the timeline stays
+## fixed — the standard "ripple-safe" left-trim behavior every NLE uses.
+## out_point is untouched. This is deliberately a separate single
+## invertible command rather than a trim_clip() + move_clip() pair: it's
+## one user gesture (dragging a clip's left edge) and should be one undo
+## step, not two.
+func trim_clip_left(track_id: int, clip_id: int, new_in: float) -> void:
+	if not tracks.has(track_id):
+		return
+	var clip: Clip = tracks[track_id].find_clip(clip_id)
+	if clip == null:
+		return
+	new_in = clamp(new_in, 0.0, clip.out_point - 0.01)
+	var delta := new_in - clip.in_point
+	var old_in := clip.in_point
+	var old_start := clip.start_time
+	var new_start := max(0.0, old_start + delta)
+
+	var do := func():
+		var c: Clip = tracks[track_id].find_clip(clip_id)
+		c.in_point = new_in
+		c.start_time = new_start
+		track_changed.emit(tracks[track_id])
+
+	var undo := func():
+		var c: Clip = tracks[track_id].find_clip(clip_id)
+		c.in_point = old_in
+		c.start_time = old_start
+		track_changed.emit(tracks[track_id])
+
+	_commit(do, undo, "trim_clip_left")
+
 ## Trims a clip's in/out points in place (does not move start_time).
 func trim_clip(track_id: int, clip_id: int, new_in: float, new_out: float) -> void:
 	if not tracks.has(track_id):
