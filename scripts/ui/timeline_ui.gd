@@ -4,10 +4,10 @@ extends Control
 ## "Enter Scene" button below is the ONLY bridge to Phase 2's
 ## Scene/Roam UI — everything else stays flat here by design.
 ##
-## Phase 1 scope: play/pause, scrub, add/remove track, trim in/out,
-## split, ripple-delete, drag-reorder, undo/redo. All of it mutates
-## TimelineData, never touches TimelineStage nodes directly (Module A
-## single-source-of-truth rule).
+## Phase 1 scope: play/pause, scrub, add/remove track, import media,
+## trim in/out, split, ripple-delete, drag-reorder, undo/redo. All of it
+## mutates TimelineData, never touches TimelineStage nodes directly
+## (Module A single-source-of-truth rule).
 
 signal enter_scene_requested()
 
@@ -20,6 +20,14 @@ signal enter_scene_requested()
 @onready var _redo_button: Button = %RedoButton
 
 var _is_playing: bool = false
+var _file_dialog: FileDialog
+var _pending_import_track_id: int = -1
+
+## Media import has no real duration probe until Module B's decode route
+## lands — this is an explicit placeholder length, not a guess at real
+## media duration. Trim handles let the user shorten it immediately;
+## there's no way to know the true source length without decoding it.
+const PLACEHOLDER_IMPORT_DURATION := 5.0
 
 func _ready() -> void:
 	if not has_node("/root/TimelineData"):
@@ -36,6 +44,23 @@ func _ready() -> void:
 	_undo_button.pressed.connect(func(): get_node("/root/TimelineData").undo())
 	_redo_button.pressed.connect(func(): get_node("/root/TimelineData").redo())
 	_on_history_changed() # sync initial disabled state
+
+	_file_dialog = FileDialog.new()
+	_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	_file_dialog.file_selected.connect(_on_media_file_selected)
+	add_child(_file_dialog)
+	# NOTE (mobile-first, brief §1): Godot's FileDialog with
+	# ACCESS_FILESYSTEM works reliably on desktop, which is what this is
+	# being authored/tested against right now. Its behavior on exported
+	# Android/iOS builds is genuinely uncertain — mobile OSes generally
+	# require going through their own document picker (Storage Access
+	# Framework on Android, UIDocumentPickerViewController on iOS) rather
+	# than raw filesystem browsing, and Godot's mobile support for this
+	# has changed across versions. Don't assume this works unmodified on
+	# a real device; verify on the target export template and swap to a
+	# native picker (likely another GDExtension bridge, similar in spirit
+	# to Module B's decode bridge) if FileDialog doesn't behave.
 
 func _on_history_changed() -> void:
 	var td = get_node("/root/TimelineData")
@@ -71,11 +96,24 @@ func _build_track_row(track) -> Control:
 	label.text = "%s track #%d" % [track.kind.capitalize(), track.id]
 	header.add_child(label)
 
-	var add_clip_btn := Button.new()
-	add_clip_btn.text = "Add Test Clip"
-	add_clip_btn.tooltip_text = "Placeholder clip for layout/interaction testing until media import (Module B) lands"
-	add_clip_btn.pressed.connect(func(): _add_test_clip(track.id))
-	header.add_child(add_clip_btn)
+	if track.kind == "text":
+		# Text tracks have no file to import — the equivalent action is
+		# typing content, per the interim "clip.path holds the literal
+		# text string" mapping documented in track_stage_controller.gd.
+		var text_input := LineEdit.new()
+		text_input.placeholder_text = "Type text..."
+		text_input.custom_minimum_size.x = 160
+		header.add_child(text_input)
+
+		var add_text_btn := Button.new()
+		add_text_btn.text = "Add Text Clip"
+		add_text_btn.pressed.connect(func(): _add_text_clip(track.id, text_input.text))
+		header.add_child(add_text_btn)
+	else:
+		var import_btn := Button.new()
+		import_btn.text = "Import Media"
+		import_btn.pressed.connect(func(): _open_media_import(track.id, track.kind))
+		header.add_child(import_btn)
 
 	var split_btn := Button.new()
 	split_btn.text = "Split"
@@ -100,24 +138,40 @@ func _build_track_row(track) -> Control:
 	strip.track_id = track.id
 	container.add_child(strip)
 
-	# Drag-to-trim (in/out) and drag-to-reposition are handled inside
-	# TimelineTrackStrip; nothing left here for Module A's "Phase 1
-	# remainder" TODO beyond media import actually producing real clips
-	# instead of the placeholder below.
 	return container
 
-## Placeholder clip generator so the draggable strip has something to
-## interact with before Module B media import exists. Real "Add Clip"
-## should open a media picker and call TimelineData.add_clip with an
-## actual source path/in/out — this is scoped explicitly to UI/interaction
-## testing, not a stand-in for that feature.
-func _add_test_clip(track_id: int) -> void:
+func _open_media_import(track_id: int, kind: String) -> void:
+	_pending_import_track_id = track_id
+	match kind:
+		"audio":
+			_file_dialog.filters = PackedStringArray(["*.ogg, *.wav ; Audio Files"])
+		"overlay", "sticker":
+			_file_dialog.filters = PackedStringArray(["*.png, *.jpg, *.jpeg, *.svg ; Image Files"])
+		_: # video
+			_file_dialog.filters = PackedStringArray(["*.ogv, *.mp4, *.webm ; Video Files"])
+	_file_dialog.popup_centered_ratio(0.8)
+
+func _on_media_file_selected(path: String) -> void:
+	if _pending_import_track_id == -1:
+		return
+	_append_clip(_pending_import_track_id, path, PLACEHOLDER_IMPORT_DURATION)
+	_pending_import_track_id = -1
+
+func _add_text_clip(track_id: int, text: String) -> void:
+	if text.strip_edges() == "":
+		push_warning("TimelineUI: empty text, not adding a clip")
+		return
+	_append_clip(track_id, text, PLACEHOLDER_IMPORT_DURATION)
+
+## Shared "append after the last existing clip on this track" logic used
+## by both media import and text-clip creation.
+func _append_clip(track_id: int, path_or_text: String, duration: float) -> void:
 	var td = get_node("/root/TimelineData")
 	var existing_end := 0.0
 	if td.tracks.has(track_id):
 		for clip in td.tracks[track_id].clips:
 			existing_end = max(existing_end, clip.start_time + clip.duration())
-	td.add_clip(track_id, "res://test_media/placeholder.ogv", 0.0, 3.0, existing_end)
+	td.add_clip(track_id, path_or_text, 0.0, duration, existing_end)
 
 func _split_at_playhead(track_id: int) -> void:
 	var td = get_node("/root/TimelineData")
