@@ -33,7 +33,12 @@ func _ready() -> void:
 
 func _on_add_track_pressed() -> void:
 	var td = get_node("/root/TimelineData")
-	td.add_track("video")
+	# Each new track gets its own depth slot so tracks don't stack at the
+	# same z and z-fight once instanced in the 3D stage — real depth
+	# authoring (drag-to-reorder-in-depth) is future UI work, this just
+	# guarantees every track starts visually distinct.
+	var next_depth := td.tracks.size() * 0.05
+	td.add_track("video", next_depth)
 
 func _on_track_added(track) -> void:
 	var row := _build_track_row(track)

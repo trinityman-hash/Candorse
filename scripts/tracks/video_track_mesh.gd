@@ -58,6 +58,7 @@ func update_frame_texture(tex: Texture2D) -> void:
 func _on_track_changed(track) -> void:
 	if track.id != track_id:
 		return
+	var subdiv_changed := track.curvable != curvable
 	curvable = track.curvable
-	# TODO: rebuild mesh only if subdivision/curvable flag actually changed,
-	# don't rebuild every frame — cost noted in §3 correction table.
+	if subdiv_changed:
+		_build_mesh()

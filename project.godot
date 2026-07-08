@@ -9,8 +9,14 @@ config/name="Candorse"
 config/description="A video editor built inside a 3D world."
 run/main_scene="res://scenes/editor_main.tscn"
 config/features=PackedStringArray("4.2", "Mobile")
-config/icon="res://assets/branding/candorse_icon.png"
-boot_splash/image="res://assets/branding/candorse_splash.png"
+; config/icon and boot_splash/image intentionally unset: they previously
+; pointed at res://assets/branding/candorse_icon.png and candorse_splash.png,
+; neither of which exist anywhere in this repo. A dangling icon path throws
+; console errors on every boot and, worse, can fail Android/iOS export
+; presets outright since those exporters pull the launcher icon from this
+; setting and expect a real file. Add real branding assets under
+; assets/branding/ and re-point these two keys when they exist — don't
+; re-add the path without the file landing in the same commit.
 boot_splash/bg_color=Color(0.043, 0.043, 0.043, 1)
 boot_splash/fullsize=false
 boot_splash/use_filter=true
