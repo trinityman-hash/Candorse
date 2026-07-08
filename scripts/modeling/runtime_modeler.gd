@@ -86,9 +86,12 @@ static func make_path_ribbon(path_points: PackedVector3Array, width: float = 0.1
 	## For "text-on-path" / simple ribbon geometry along an arbitrary
 	## 3D path (Module G kinetic text-on-path reuses this).
 	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	if path_points.size() < 2:
 		return st.commit()
+
+	var left: Array = []
+	var right: Array = []
 	for i in range(path_points.size()):
 		var dir: Vector3
 		if i == 0:
@@ -98,7 +101,19 @@ static func make_path_ribbon(path_points: PackedVector3Array, width: float = 0.1
 		else:
 			dir = (path_points[i + 1] - path_points[i - 1]).normalized()
 		var side := dir.cross(Vector3.UP).normalized() * (width / 2.0)
-		st.add_vertex(path_points[i] - side)
-		st.add_vertex(path_points[i] + side)
+		left.append(path_points[i] - side)
+		right.append(path_points[i] + side)
+
+	# Explicit per-segment triangles rather than PRIMITIVE_TRIANGLE_STRIP:
+	# generate_normals() below computes face normals assuming each
+	# consecutive vertex triplet is its own discrete triangle, which is
+	# only true for PRIMITIVE_TRIANGLES — against a strip it would
+	# silently produce wrong normals (the bug in the previous version).
+	for i in range(path_points.size() - 1):
+		var a := left[i]; var b := right[i]
+		var c := right[i + 1]; var d := left[i + 1]
+		st.add_triangle_fan(PackedVector3Array([a, b, c]))
+		st.add_triangle_fan(PackedVector3Array([a, c, d]))
+
 	st.generate_normals()
 	return st.commit()

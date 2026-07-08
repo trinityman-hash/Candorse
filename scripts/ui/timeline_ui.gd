@@ -18,7 +18,6 @@ signal enter_scene_requested()
 @onready var _enter_scene_button: Button = %EnterSceneButton
 
 var _is_playing: bool = false
-var _playhead_seconds: float = 0.0
 
 func _ready() -> void:
 	if not has_node("/root/TimelineData"):
@@ -53,29 +52,65 @@ func _build_track_row(track) -> Control:
 	label.text = "%s track #%d" % [track.kind.capitalize(), track.id]
 	row.add_child(label)
 
+	var split_btn := Button.new()
+	split_btn.text = "Split"
+	split_btn.tooltip_text = "Split the clip under the playhead into two clips"
+	split_btn.pressed.connect(func(): _split_at_playhead(track.id))
+	row.add_child(split_btn)
+
+	var ripple_delete_btn := Button.new()
+	ripple_delete_btn.text = "Ripple Delete"
+	ripple_delete_btn.tooltip_text = "Remove the clip under the playhead and shift later clips left"
+	ripple_delete_btn.pressed.connect(func(): _ripple_delete_at_playhead(track.id))
+	row.add_child(ripple_delete_btn)
+
 	var remove_btn := Button.new()
-	remove_btn.text = "Remove"
+	remove_btn.text = "Remove Track"
 	remove_btn.pressed.connect(func():
 		get_node("/root/TimelineData").remove_track(track.id)
 	)
 	row.add_child(remove_btn)
 
-	# TODO Phase 1 remainder: trim handles (drag in/out), split-at-playhead,
-	# ripple-delete, drag-reorder. Snap thresholds must be computed in
-	# timeline-seconds, not pixels, per Module A — convert using the
-	# scrub bar's seconds-per-pixel ratio, not raw drag deltas.
+	# TODO Phase 1 remainder: drag-to-trim in/out handles and drag-reorder
+	# still need real drag gestures on a rendered clip strip (this row is
+	# currently a text-only stand-in with no clip visualization). Split
+	# and ripple-delete above operate on "the clip under the playhead" as
+	# an interim interaction model until clips are actually drawn/draggable
+	# here. Snap thresholds, when drag lands, must be computed in
+	# timeline-seconds via the scrub bar's seconds-per-pixel ratio, not
+	# raw pixel deltas, per Module A.
 	return row
+
+func _split_at_playhead(track_id: int) -> void:
+	var td = get_node("/root/TimelineData")
+	var clip = td.find_clip_at(track_id)
+	if clip == null:
+		push_warning("TimelineUI: no clip under playhead on track %d to split" % track_id)
+		return
+	td.split_clip(track_id, clip.id, td.playhead_seconds)
+
+func _ripple_delete_at_playhead(track_id: int) -> void:
+	var td = get_node("/root/TimelineData")
+	var clip = td.find_clip_at(track_id)
+	if clip == null:
+		push_warning("TimelineUI: no clip under playhead on track %d to remove" % track_id)
+		return
+	td.remove_clip(track_id, clip.id, true)
 
 func _on_play_pressed() -> void:
 	_is_playing = not _is_playing
 	_play_button.text = "Pause" if _is_playing else "Play"
 
 func _on_scrub_changed(value: float) -> void:
-	_playhead_seconds = value
-	# TODO: broadcast playhead position so video_track_mesh instances seek/
-	# resume decode at the right frame (ties into Module B frame cache).
+	get_node("/root/TimelineData").set_playhead(value)
+	# video_track_mesh instances and audio playback should subscribe to
+	# TimelineData.playhead_changed to seek/resume decode (Module B frame
+	# cache) — that consumer side doesn't exist until Module B's route is
+	# implemented past the Phase 0 stress-test stub, so it's a listener
+	# this signal is ready for, not a gap in this file.
 
 func _process(delta: float) -> void:
 	if _is_playing:
-		_playhead_seconds += delta
-		_scrub_bar.value = _playhead_seconds
+		var td = get_node("/root/TimelineData")
+		td.set_playhead(td.playhead_seconds + delta)
+		_scrub_bar.value = td.playhead_seconds

@@ -19,6 +19,15 @@ void vertex() {
 		curled.y = VERTEX.y;
 		curled.z = (1.0 - cos(angle)) * curl_radius * -1.0;
 		VERTEX = mix(VERTEX, curled, curl_amount);
+
+		// A cylinder wrap around the Y axis rotates the surface normal by
+		// the same `angle` as the vertex — the flat quad's incoming normal
+		// (0, 0, 1) becomes (sin(angle), 0, cos(angle)) at full curl.
+		// Without this, lighting on curved tracks reads as flat-shaded
+		// once Module D's lit render path replaces `unshaded` — the bend
+		// would be geometrically real but visually look unlit/wrong.
+		vec3 curled_normal = vec3(sin(angle), NORMAL.y, cos(angle));
+		NORMAL = normalize(mix(NORMAL, curled_normal, curl_amount));
 	}
 }
 

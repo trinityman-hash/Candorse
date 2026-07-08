@@ -15,6 +15,7 @@ signal track_added(track: Track)
 signal track_removed(track_id: int)
 signal track_changed(track: Track)
 signal history_changed()
+signal playhead_changed(time: float)
 
 class Clip:
 	var id: int = -1
@@ -59,9 +60,32 @@ const MAX_HISTORY := 30
 var tracks: Dictionary = {} # id -> Track
 var _next_track_id: int = 0
 var _next_clip_id: int = 0
+var playhead_seconds: float = 0.0
 
 var _undo_stack: Array = [] # Array[Dictionary] {do, undo, label}
 var _redo_stack: Array = []
+
+## Playhead is NOT part of the undo/redo history — scrubbing shouldn't
+## consume/pollute the edit-command stack. It's still routed through this
+## autoload (not left local to timeline_ui.gd) because Module A's
+## single-source-of-truth rule applies to it too: video_track_mesh
+## seek/decode-resume and audio playback both need one authoritative
+## playhead to read, not a UI-local variable they can't see.
+func set_playhead(time: float) -> void:
+	playhead_seconds = max(0.0, time)
+	playhead_changed.emit(playhead_seconds)
+
+## Returns the clip on `track_id` whose [start_time, start_time+duration)
+## span contains `time` (defaults to the current playhead), or null.
+func find_clip_at(track_id: int, time: float = -1.0) -> Clip:
+	if not tracks.has(track_id):
+		return null
+	var t: float = playhead_seconds if time < 0.0 else time
+	var track: Track = tracks[track_id]
+	for c in track.clips:
+		if t >= c.start_time and t < c.start_time + c.duration():
+			return c
+	return null
 
 # ---------------------------------------------------------------------------
 # Track operations

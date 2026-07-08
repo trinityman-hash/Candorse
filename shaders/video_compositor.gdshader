@@ -14,7 +14,16 @@ uniform float opacity : hint_range(0.0, 1.0) = 1.0;
 void fragment() {
 	vec4 tex_color = texture(video_texture, UV);
 
-	// Premultiplied-alpha compositing (Module E).
+	// NOTE on compositing mode: `render_mode blend_mix` performs standard
+	// (straight, non-premultiplied) alpha blending using ALBEDO/ALPHA as
+	// the source color/coverage — Godot's spatial shaders don't expose a
+	// `premultiplied_alpha` render_mode. video_texture is expected to hold
+	// straight alpha (true of decoded video frames and typical PNG
+	// overlay/sticker/text sources), so ALBEDO must stay un-multiplied
+	// here; blend_mix does the alpha compositing itself. Multiplying
+	// ALBEDO by alpha on top of that double-darkens every semi-transparent
+	// pixel (visible as dark fringing on overlay/text/sticker tracks and,
+	// later, chroma-key edges) — that was the bug in the previous version.
 	vec3 straight_rgb = tex_color.rgb;
 
 	// 4x4-ish color matrix grading (using vec4 rows against rgb+1 for offset).
@@ -28,6 +37,6 @@ void fragment() {
 	vec3 lut_color = texture(lut_texture, graded).rgb;
 	vec3 final_rgb = mix(graded, lut_color, lut_strength);
 
-	ALBEDO = final_rgb * tex_color.a;
+	ALBEDO = final_rgb;
 	ALPHA = tex_color.a * opacity;
 }
