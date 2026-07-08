@@ -1,0 +1,27 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/export/decode_stress_test.gd" id="1"]
+
+[node name="Phase0StressTest" type="Node3D"]
+script = ExtResource("1")
+log_interval_frames = 60
+stall_threshold_ms = 33.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3)
+current = true
+
+[node name="KeyLight" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.25, 0.433, 0, 0.866, 0.5, -0.5, -0.433, 0.75, 0, 5, 5)
+
+[node name="VideoStreamPlayer1" type="VideoStreamPlayer" parent="."]
+stream = null
+autoplay = false
+
+[node name="VideoStreamPlayer2" type="VideoStreamPlayer" parent="."]
+stream = null
+autoplay = false
+
+[node name="VideoStreamPlayer3" type="VideoStreamPlayer" parent="."]
+stream = null
+autoplay = false
