@@ -9,6 +9,10 @@ class_name TimelineTrackStrip
 ## drag-frame. Snap increments are computed in timeline-seconds
 ## (SNAP_SECONDS), never raw pixel deltas, per Module A's explicit rule.
 ##
+## Audio-kind tracks additionally render a waveform inside each clip
+## panel (Module F: "waveform generation for timeline display"), sourced
+## from the shared WaveformGenerator cache — see _draw_waveform().
+##
 ## This widget never mutates mesh transforms or anything in the 3D stage
 ## directly — it only ever calls TimelineData methods. TrackStageController
 ## and video_track_mesh.gd pick up the resulting track_changed signal on
@@ -19,6 +23,7 @@ const SNAP_SECONDS := 0.1
 const EDGE_GRAB_PX := 10.0
 const CLIP_HEIGHT := 36.0
 const PLAYHEAD_COLOR := Color(1.0, 0.35, 0.35, 0.9)
+const WAVEFORM_COLOR := Color(0.55, 0.85, 1.0, 0.9)
 
 @export var track_id: int = -1
 
@@ -30,9 +35,16 @@ var _drag_start_mouse_x: float = 0.0
 var _clip_snapshot: Dictionary = {} # {in_point, out_point, start_time} at drag begin
 var _pending_value: float = 0.0 # the snapped candidate value, applied on release
 
+# Shared across all strips so the waveform cache (disk + memory, per
+# WaveformGenerator's own contract: "precompute once per import, cache")
+# isn't duplicated per track row.
+static var _waveform_generator: WaveformGenerator
+
 func _ready() -> void:
 	custom_minimum_size.y = CLIP_HEIGHT + 8.0
 	mouse_filter = Control.MOUSE_FILTER_PASS
+	if not is_instance_valid(_waveform_generator):
+		_waveform_generator = WaveformGenerator.new()
 	if has_node("/root/TimelineData"):
 		var td = get_node("/root/TimelineData")
 		td.track_changed.connect(_on_track_changed)
@@ -55,11 +67,12 @@ func _rebuild() -> void:
 	var td = get_node("/root/TimelineData")
 	if not td.tracks.has(track_id):
 		return
-	for clip in td.tracks[track_id].clips:
-		_add_clip_panel(clip)
+	var track = td.tracks[track_id]
+	for clip in track.clips:
+		_add_clip_panel(clip, track.kind)
 	queue_redraw()
 
-func _add_clip_panel(clip) -> void:
+func _add_clip_panel(clip, track_kind: String) -> void:
 	var panel := Panel.new()
 	panel.position = Vector2(clip.start_time * PIXELS_PER_SECOND, 4)
 	panel.size = Vector2(max(clip.duration() * PIXELS_PER_SECOND, 4.0), CLIP_HEIGHT)
@@ -74,8 +87,55 @@ func _add_clip_panel(clip) -> void:
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(label)
 
+	if track_kind == "audio":
+		panel.draw.connect(func(): _draw_waveform(panel, clip))
+
 	add_child(panel)
 	_panels[clip.id] = panel
+
+## Module F waveform display. Draws cached peaks for the clip's source
+## across the panel's current width — note this reads live peaks against
+## the *committed* clip.in_point/out_point, so during an active drag the
+## panel shows the old waveform stretched/compressed rather than
+## re-sampling per frame; re-sampling live would be needlessly expensive
+## for a preview that gets thrown away on most drag cancellations. The
+## _rebuild() on drag-end draws the correct final waveform.
+func _draw_waveform(panel: Panel, clip) -> void:
+	if clip.path == "":
+		return
+	var peaks := _waveform_generator.get_waveform(clip.path)
+	if peaks.is_empty():
+		return
+
+	var w := panel.size.x
+	var h := panel.size.y
+	var mid := h / 2.0
+	var duration := clip.duration()
+	if duration <= 0.0:
+		return
+
+	# peaks[] spans the FULL source file at samples_per_second resolution;
+	# only the [in_point, out_point) slice is relevant to this clip.
+	var samples_per_second := 20.0 # must match WaveformGenerator's default
+	var start_index := int(clip.in_point * samples_per_second)
+	var end_index := int(clip.out_point * samples_per_second)
+	end_index = min(end_index, peaks.size())
+	if start_index >= end_index:
+		return
+
+	var visible_samples := end_index - start_index
+	var points := PackedVector2Array()
+	for i in range(visible_samples):
+		var t := float(i) / float(visible_samples) # 0..1 across the clip
+		var amp: float = clampf(peaks[start_index + i], 0.0, 1.0)
+		points.append(Vector2(t * w, mid - amp * mid))
+	for i in range(visible_samples - 1, -1, -1):
+		var t := float(i) / float(visible_samples)
+		var amp: float = clampf(peaks[start_index + i], 0.0, 1.0)
+		points.append(Vector2(t * w, mid + amp * mid))
+
+	if points.size() >= 3:
+		panel.draw_colored_polygon(points, WAVEFORM_COLOR)
 
 func _on_track_changed(track) -> void:
 	if track.id != track_id or _dragging_clip_id != -1:
@@ -127,6 +187,7 @@ func _update_drag(event: InputEventMouseMotion, panel: Panel) -> void:
 			var min_out: float = float(_clip_snapshot["in_point"]) + 0.05
 			_pending_value = max(min_out, float(_clip_snapshot["out_point"]) + delta_sec)
 			panel.size.x = max(4.0, (_pending_value - float(_clip_snapshot["in_point"])) * PIXELS_PER_SECOND)
+	panel.queue_redraw()
 
 func _end_drag() -> void:
 	if _dragging_clip_id == -1:

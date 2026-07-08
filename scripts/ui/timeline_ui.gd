@@ -5,9 +5,9 @@ extends Control
 ## Scene/Roam UI — everything else stays flat here by design.
 ##
 ## Phase 1 scope: play/pause, scrub, add/remove track, trim in/out,
-## split, ripple-delete, drag-reorder. All of it mutates TimelineData,
-## never touches TimelineStage nodes directly (Module A single-source-
-## of-truth rule).
+## split, ripple-delete, drag-reorder, undo/redo. All of it mutates
+## TimelineData, never touches TimelineStage nodes directly (Module A
+## single-source-of-truth rule).
 
 signal enter_scene_requested()
 
@@ -16,6 +16,8 @@ signal enter_scene_requested()
 @onready var _track_list: VBoxContainer = %TrackList
 @onready var _add_track_button: Button = %AddTrackButton
 @onready var _enter_scene_button: Button = %EnterSceneButton
+@onready var _undo_button: Button = %UndoButton
+@onready var _redo_button: Button = %RedoButton
 
 var _is_playing: bool = false
 
@@ -26,10 +28,19 @@ func _ready() -> void:
 	var td = get_node("/root/TimelineData")
 	td.track_added.connect(_on_track_added)
 	td.track_removed.connect(_on_track_removed)
+	td.history_changed.connect(_on_history_changed)
 	_add_track_button.pressed.connect(_on_add_track_pressed)
 	_play_button.pressed.connect(_on_play_pressed)
 	_scrub_bar.value_changed.connect(_on_scrub_changed)
 	_enter_scene_button.pressed.connect(func(): enter_scene_requested.emit())
+	_undo_button.pressed.connect(func(): get_node("/root/TimelineData").undo())
+	_redo_button.pressed.connect(func(): get_node("/root/TimelineData").redo())
+	_on_history_changed() # sync initial disabled state
+
+func _on_history_changed() -> void:
+	var td = get_node("/root/TimelineData")
+	_undo_button.disabled = not td.can_undo()
+	_redo_button.disabled = not td.can_redo()
 
 func _on_add_track_pressed() -> void:
 	var td = get_node("/root/TimelineData")
