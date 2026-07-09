@@ -23,6 +23,11 @@ class Clip:
 	var in_point: float = 0.0
 	var out_point: float = 0.0
 	var start_time: float = 0.0 # position on the track, in timeline-seconds
+	## Module E: how many seconds this clip crossfades in from the
+	## PREVIOUS clip on the same track, starting at start_time. 0 means a
+	## hard cut. Convention matches most NLEs: the transition duration
+	## lives on the incoming clip, not as a separate timeline object.
+	var transition_duration: float = 0.0
 
 	func duration() -> float:
 		return out_point - in_point
@@ -34,6 +39,7 @@ class Clip:
 		c.in_point = in_point
 		c.out_point = out_point
 		c.start_time = start_time
+		c.transition_duration = transition_duration
 		return c
 
 class Track:
@@ -49,6 +55,21 @@ class Track:
 			if c.id == clip_id:
 				return c
 		return null
+
+	## Returns the clip immediately before `clip_id` on this track by
+	## start_time, or null if it's the first clip. Used to resolve the
+	## crossfade partner for a clip's transition_duration.
+	func find_previous_clip(clip_id: int) -> Clip:
+		var target := find_clip(clip_id)
+		if target == null:
+			return null
+		var best: Clip = null
+		for c in clips:
+			if c.id == clip_id:
+				continue
+			if c.start_time < target.start_time and (best == null or c.start_time > best.start_time):
+				best = c
+		return best
 
 # --- Command pattern: each entry is a Dictionary with `do` and `undo`
 # Callables (Godot 4 Callable, zero-arg). Kept as plain Callables rather
@@ -279,6 +300,39 @@ func trim_clip(track_id: int, clip_id: int, new_in: float, new_out: float) -> vo
 
 	_commit(do, undo, "trim_clip")
 
+## Sets how many seconds this clip crossfades in from the previous clip
+## on the same track (Module E). Clamped so the transition can't be
+## longer than either clip's own duration or the gap available before
+## the previous clip's start — a transition can't reach back further
+## than there's actual overlapping footage to blend.
+func set_transition_duration(track_id: int, clip_id: int, duration: float) -> void:
+	if not tracks.has(track_id):
+		return
+	var track: Track = tracks[track_id]
+	var clip: Clip = track.find_clip(clip_id)
+	if clip == null:
+		return
+	var prev := track.find_previous_clip(clip_id)
+	var max_duration := clip.duration()
+	if prev != null:
+		max_duration = min(max_duration, prev.duration())
+	else:
+		max_duration = 0.0 # no previous clip on this track, nothing to fade from
+	var clamped := clamp(duration, 0.0, max_duration)
+	var old_duration := clip.transition_duration
+
+	var do := func():
+		var c: Clip = tracks[track_id].find_clip(clip_id)
+		c.transition_duration = clamped
+		track_changed.emit(tracks[track_id])
+
+	var undo := func():
+		var c: Clip = tracks[track_id].find_clip(clip_id)
+		c.transition_duration = old_duration
+		track_changed.emit(tracks[track_id])
+
+	_commit(do, undo, "set_transition_duration")
+
 ## Splits a clip at `split_time` (timeline-seconds, absolute) into two
 ## clips. No-op if split_time isn't strictly inside the clip's span.
 func split_clip(track_id: int, clip_id: int, split_time: float) -> void:
@@ -303,6 +357,7 @@ func split_clip(track_id: int, clip_id: int, split_time: float) -> void:
 		right.id = new_clip_id
 		right.in_point = c.in_point + split_offset
 		right.start_time = c.start_time + split_offset
+		right.transition_duration = 0.0 # a fresh cut, no crossfade implied
 		c.out_point = c.in_point + split_offset
 		tracks[track_id].clips.append(right)
 		track_changed.emit(tracks[track_id])

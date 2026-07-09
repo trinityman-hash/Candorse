@@ -13,6 +13,9 @@ class_name TimelineTrackStrip
 ## panel (Module F: "waveform generation for timeline display"), sourced
 ## from the shared WaveformGenerator cache — see _draw_waveform().
 ##
+## Clips with a nonzero transition_duration (Module E) draw a small
+## diagonal marker at their left edge — see _draw_transition_marker().
+##
 ## This widget never mutates mesh transforms or anything in the 3D stage
 ## directly — it only ever calls TimelineData methods. TrackStageController
 ## and video_track_mesh.gd pick up the resulting track_changed signal on
@@ -24,6 +27,7 @@ const EDGE_GRAB_PX := 10.0
 const CLIP_HEIGHT := 36.0
 const PLAYHEAD_COLOR := Color(1.0, 0.35, 0.35, 0.9)
 const WAVEFORM_COLOR := Color(0.55, 0.85, 1.0, 0.9)
+const TRANSITION_COLOR := Color(1.0, 0.8, 0.2, 0.85)
 
 @export var track_id: int = -1
 
@@ -89,6 +93,7 @@ func _add_clip_panel(clip, track_kind: String) -> void:
 
 	if track_kind == "audio":
 		panel.draw.connect(func(): _draw_waveform(panel, clip))
+	panel.draw.connect(func(): _draw_transition_marker(panel, clip))
 
 	add_child(panel)
 	_panels[clip.id] = panel
@@ -136,6 +141,22 @@ func _draw_waveform(panel: Panel, clip) -> void:
 
 	if points.size() >= 3:
 		panel.draw_colored_polygon(points, WAVEFORM_COLOR)
+
+## Module E: small diagonal wedge at the left edge indicating this clip
+## crossfades in from the previous clip. Width scales with
+## transition_duration (capped visually at the panel's own width) so a
+## longer crossfade reads as a visibly longer wedge, not just a fixed icon.
+func _draw_transition_marker(panel: Panel, clip) -> void:
+	if clip.transition_duration <= 0.0:
+		return
+	var wedge_w: float = min(clip.transition_duration * PIXELS_PER_SECOND, panel.size.x)
+	var h := panel.size.y
+	var points := PackedVector2Array([
+		Vector2(0, 0),
+		Vector2(wedge_w, 0),
+		Vector2(0, h),
+	])
+	panel.draw_colored_polygon(points, TRANSITION_COLOR)
 
 func _on_track_changed(track) -> void:
 	if track.id != track_id or _dragging_clip_id != -1:

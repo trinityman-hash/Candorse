@@ -5,9 +5,9 @@ extends Control
 ## Scene/Roam UI — everything else stays flat here by design.
 ##
 ## Phase 1 scope: play/pause, scrub, add/remove track, import media,
-## trim in/out, split, ripple-delete, drag-reorder, undo/redo. All of it
-## mutates TimelineData, never touches TimelineStage nodes directly
-## (Module A single-source-of-truth rule).
+## trim in/out, split, ripple-delete, drag-reorder, undo/redo, transitions.
+## All of it mutates TimelineData, never touches TimelineStage nodes
+## directly (Module A single-source-of-truth rule).
 
 signal enter_scene_requested()
 
@@ -28,6 +28,10 @@ var _pending_import_track_id: int = -1
 ## media duration. Trim handles let the user shorten it immediately;
 ## there's no way to know the true source length without decoding it.
 const PLACEHOLDER_IMPORT_DURATION := 5.0
+## Module E: default crossfade length applied by the "Add Transition"
+## button. TimelineData.set_transition_duration() clamps this against
+## actual available overlap, so this is a request, not a guarantee.
+const DEFAULT_TRANSITION_DURATION := 0.5
 
 func _ready() -> void:
 	if not has_node("/root/TimelineData"):
@@ -121,6 +125,12 @@ func _build_track_row(track) -> Control:
 	split_btn.pressed.connect(func(): _split_at_playhead(track.id))
 	header.add_child(split_btn)
 
+	var transition_btn := Button.new()
+	transition_btn.text = "Add Transition"
+	transition_btn.tooltip_text = "Crossfade the clip under the playhead in from the previous clip on this track"
+	transition_btn.pressed.connect(func(): _add_transition_at_playhead(track.id))
+	header.add_child(transition_btn)
+
 	var ripple_delete_btn := Button.new()
 	ripple_delete_btn.text = "Ripple Delete"
 	ripple_delete_btn.tooltip_text = "Remove the clip under the playhead and shift later clips left"
@@ -180,6 +190,18 @@ func _split_at_playhead(track_id: int) -> void:
 		push_warning("TimelineUI: no clip under playhead on track %d to split" % track_id)
 		return
 	td.split_clip(track_id, clip.id, td.playhead_seconds)
+
+func _add_transition_at_playhead(track_id: int) -> void:
+	var td = get_node("/root/TimelineData")
+	var clip = td.find_clip_at(track_id)
+	if clip == null:
+		push_warning("TimelineUI: no clip under playhead on track %d to add a transition to" % track_id)
+		return
+	var track = td.tracks[track_id]
+	if track.find_previous_clip(clip.id) == null:
+		push_warning("TimelineUI: clip under playhead has no previous clip on track %d — nothing to crossfade from" % track_id)
+		return
+	td.set_transition_duration(track_id, clip.id, DEFAULT_TRANSITION_DURATION)
 
 func _ripple_delete_at_playhead(track_id: int) -> void:
 	var td = get_node("/root/TimelineData")
