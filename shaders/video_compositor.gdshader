@@ -6,9 +6,33 @@ render_mode blend_mix, cull_disabled, unshaded, depth_draw_always;
 uniform sampler2D video_texture : source_color, filter_linear, repeat_disable;
 uniform sampler3D lut_texture : filter_linear;
 uniform float lut_strength : hint_range(0.0, 1.0) = 0.0;
+uniform vec3 lut_domain_min = vec3(0.0, 0.0, 0.0);
+uniform vec3 lut_domain_max = vec3(1.0, 1.0, 1.0);
+
+// DaVinci-style primary wheels. lift pulls shadows up/down without
+// clipping highlights, gamma reshapes midtones (power curve), gain
+// scales highlights. Standard "lift/gamma/gain" formulation (distinct
+// from the ASC CDL slope/offset/power model, though related):
+//   lifted = in + lift * (1 - in)
+//   graded = pow(lifted, 1 / gamma) * gain
+uniform vec3 lift = vec3(0.0, 0.0, 0.0);
+uniform vec3 gamma = vec3(1.0, 1.0, 1.0);
+uniform vec3 gain = vec3(1.0, 1.0, 1.0);
+
+uniform float brightness : hint_range(-1.0, 1.0) = 0.0;
+uniform float contrast : hint_range(0.0, 4.0) = 1.0;
+uniform float saturation : hint_range(0.0, 4.0) = 1.0;
+
+// Generic 4x4-ish color matrix, kept for advanced/scripted grading on
+// top of the named wheels above. Identity by default (no-op).
 uniform vec4 color_matrix_r = vec4(1.0, 0.0, 0.0, 0.0);
 uniform vec4 color_matrix_g = vec4(0.0, 1.0, 0.0, 0.0);
 uniform vec4 color_matrix_b = vec4(0.0, 0.0, 1.0, 0.0);
+
+uniform float vignette_strength : hint_range(0.0, 1.0) = 0.0;
+uniform float vignette_radius : hint_range(0.0, 1.5) = 0.75;
+uniform float vignette_softness : hint_range(0.0, 1.0) = 0.35;
+
 uniform float opacity : hint_range(0.0, 1.0) = 1.0;
 
 void fragment() {
@@ -26,16 +50,36 @@ void fragment() {
 	// later, chroma-key edges) — that was the bug in the previous version.
 	vec3 straight_rgb = tex_color.rgb;
 
-	// 4x4-ish color matrix grading (using vec4 rows against rgb+1 for offset).
-	vec4 rgba1 = vec4(straight_rgb, 1.0);
+	// --- Lift / Gamma / Gain (primary wheels) ---
+	vec3 lifted = clamp(straight_rgb + lift * (vec3(1.0) - straight_rgb), 0.0, 1.0);
+	vec3 gamma_safe = max(gamma, vec3(0.001));
+	vec3 lgg = pow(lifted, 1.0 / gamma_safe) * gain;
+
+	// --- Brightness / Contrast ---
+	vec3 bc = (lgg - 0.5) * contrast + 0.5 + brightness;
+
+	// --- Saturation (luminance-preserving) ---
+	float luma = dot(bc, vec3(0.2126, 0.7152, 0.0722));
+	vec3 graded_primary = mix(vec3(luma), bc, saturation);
+
+	// --- Generic color matrix (identity by default) ---
+	vec4 rgba1 = vec4(graded_primary, 1.0);
 	vec3 graded;
 	graded.r = dot(rgba1, color_matrix_r);
 	graded.g = dot(rgba1, color_matrix_g);
 	graded.b = dot(rgba1, color_matrix_b);
+	graded = clamp(graded, 0.0, 1.0);
 
-	// LUT sampling blended in by lut_strength (0 = bypass, cheap default path).
-	vec3 lut_color = texture(lut_texture, graded).rgb;
+	// --- LUT (domain-remapped, blended in by lut_strength) ---
+	vec3 lut_range = max(lut_domain_max - lut_domain_min, vec3(0.0001));
+	vec3 lut_uv = clamp((graded - lut_domain_min) / lut_range, 0.0, 1.0);
+	vec3 lut_color = texture(lut_texture, lut_uv).rgb;
 	vec3 final_rgb = mix(graded, lut_color, lut_strength);
+
+	// --- Vignette ---
+	float dist = distance(UV, vec2(0.5));
+	float vig = 1.0 - smoothstep(vignette_radius - vignette_softness, vignette_radius, dist);
+	final_rgb *= mix(1.0, vig, vignette_strength);
 
 	ALBEDO = final_rgb;
 	ALPHA = tex_color.a * opacity;
