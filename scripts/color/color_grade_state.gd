@@ -2,17 +2,18 @@ extends Resource
 class_name ColorGradeState
 ## Module E: per-track/per-clip color grading parameters — DaVinci-style
 ## Lift/Gamma/Gain wheels, brightness/contrast/saturation, vignette, a
-## generic color matrix (for advanced/scripted grading), and an optional
-## LUT blend. This holds plain data and knows how to push itself onto a
+## generic color matrix (for advanced/scripted grading), per-channel
+## tone curves (see hsl_curves.gd), and an optional LUT blend. This
+## holds plain data and knows how to push itself onto a
 ## video_compositor.gdshader ShaderMaterial; it deliberately does NOT
 ## know about TimelineData, undo/redo, or any UI — callers own wiring
 ## this into a command-pattern undo entry the same way Module A's other
 ## mutations work.
 ##
 ## NOT implemented in this pass — tracked in docs/COLOR_ENGINE_STATUS.md,
-## not silently dropped: per-channel HSL curves, and the standalone
-## Sharpness slider (both need neighbor-texel sampling or curve-to-
-## texture baking substantial enough to deserve their own focused pass).
+## not silently dropped: the standalone Sharpness slider (needs a
+## texel_size uniform derived from the actual decoded frame resolution,
+## which is tangled up with the still-undecided Module B decode route).
 
 @export var lift: Vector3 = Vector3.ZERO
 @export var gamma: Vector3 = Vector3.ONE
@@ -29,6 +30,12 @@ class_name ColorGradeState
 @export var color_matrix_r: Vector4 = Vector4(1, 0, 0, 0)
 @export var color_matrix_g: Vector4 = Vector4(0, 1, 0, 0)
 @export var color_matrix_b: Vector4 = Vector4(0, 0, 1, 0)
+
+## Master/Red/Green/Blue tone curves. See hsl_curves.gd for the point-
+## editing API (add_point/move_point/remove_point/reset_channel) a UI
+## curve editor drives; this class only ever reads it back via
+## is_identity() / get_texture() when pushing to the shader.
+@export var hsl_curves: HSLCurves = HSLCurves.new()
 
 var lut_strength: float = 0.0:
 	set(v):
@@ -58,7 +65,9 @@ func lut_title() -> String:
 
 ## Pushes every parameter onto the given material's shader uniforms.
 ## Safe to call every frame if a caller wants live-preview dragging on a
-## color wheel; ShaderMaterial.set_shader_parameter is cheap.
+## color wheel or curve point; ShaderMaterial.set_shader_parameter is
+## cheap, and hsl_curves.get_texture() only re-bakes when a curve point
+## actually changed (see HSLCurves._dirty).
 func apply_to_material(mat: ShaderMaterial) -> void:
 	if mat == null:
 		push_warning("ColorGradeState.apply_to_material: null material")
@@ -76,6 +85,12 @@ func apply_to_material(mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("color_matrix_r", color_matrix_r)
 	mat.set_shader_parameter("color_matrix_g", color_matrix_g)
 	mat.set_shader_parameter("color_matrix_b", color_matrix_b)
+
+	if hsl_curves != null and not hsl_curves.is_identity():
+		mat.set_shader_parameter("hsl_curve_lut", hsl_curves.get_texture())
+		mat.set_shader_parameter("hsl_curves_enabled", true)
+	else:
+		mat.set_shader_parameter("hsl_curves_enabled", false)
 
 	if _lut != null:
 		mat.set_shader_parameter("lut_texture", _lut.texture)
@@ -99,4 +114,6 @@ func reset() -> void:
 	color_matrix_r = Vector4(1, 0, 0, 0)
 	color_matrix_g = Vector4(0, 1, 0, 0)
 	color_matrix_b = Vector4(0, 0, 1, 0)
+	if hsl_curves != null:
+		hsl_curves.reset_all()
 	clear_lut()

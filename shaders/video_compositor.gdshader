@@ -29,6 +29,16 @@ uniform vec4 color_matrix_r = vec4(1.0, 0.0, 0.0, 0.0);
 uniform vec4 color_matrix_g = vec4(0.0, 1.0, 0.0, 0.0);
 uniform vec4 color_matrix_b = vec4(0.0, 0.0, 1.0, 0.0);
 
+// Per-channel tone curves (Master -> Red/Green/Blue), baked CPU-side by
+// hsl_curves.gd into a 256x1 lookup: texel x holds (curve_r(x),
+// curve_g(x), curve_b(x)) where each already has the Master curve
+// folded in. Disabled (uniform bool, so a static branch — cheap on
+// mobile) whenever HSLCurves.is_identity() is true, so untouched tracks
+// pay zero extra cost. Applied after the color matrix and before the
+// LUT, matching the standard grading order: primaries -> curves -> look.
+uniform sampler2D hsl_curve_lut : filter_linear, repeat_disable;
+uniform bool hsl_curves_enabled = false;
+
 uniform float vignette_strength : hint_range(0.0, 1.0) = 0.0;
 uniform float vignette_radius : hint_range(0.0, 1.5) = 0.75;
 uniform float vignette_softness : hint_range(0.0, 1.0) = 0.35;
@@ -69,6 +79,17 @@ void fragment() {
 	graded.g = dot(rgba1, color_matrix_g);
 	graded.b = dot(rgba1, color_matrix_b);
 	graded = clamp(graded, 0.0, 1.0);
+
+	// --- Per-channel tone curves (see hsl_curves.gd) ---
+	if (hsl_curves_enabled) {
+		// Each channel looks itself up independently: the lookup texture's
+		// R row already has Master->Red folded in at bake time, etc., so
+		// this is a direct table lookup, not a further composition step.
+		graded.r = texture(hsl_curve_lut, vec2(graded.r, 0.5)).r;
+		graded.g = texture(hsl_curve_lut, vec2(graded.g, 0.5)).g;
+		graded.b = texture(hsl_curve_lut, vec2(graded.b, 0.5)).b;
+		graded = clamp(graded, 0.0, 1.0);
+	}
 
 	// --- LUT (domain-remapped, blended in by lut_strength) ---
 	vec3 lut_range = max(lut_domain_max - lut_domain_min, vec3(0.0001));
