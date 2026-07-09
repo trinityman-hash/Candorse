@@ -17,6 +17,7 @@ const SHARED_ENV_GROUP := "candorse_shared_world_environment"
 
 var _particles: GPUParticles3D
 var _intensity: float = 1.0
+var _keyframes := LayerKeyframes.new() # Module G integration, see layer_keyframes.gd
 
 # NOTE on fog: Godot only honors one *active* WorldEnvironment per
 # viewport — instancing a separate WorldEnvironment node per
@@ -34,6 +35,9 @@ func _ready() -> void:
 		_build_particles()
 	if kind == Kind.FOG or kind == Kind.BOTH:
 		_register_fog_contribution()
+	# Picked up automatically by PlayheadKeyframeDriver — see
+	# scripts/keyframe/playhead_keyframe_driver.gd.
+	add_to_group("keyframed_layers")
 
 func _exit_tree() -> void:
 	if _fog_contributions.has(get_instance_id()):
@@ -123,3 +127,14 @@ func set_intensity(t: float) -> void:
 		_recompute_shared_fog()
 		if is_instance_valid(_shared_world_env) and _shared_world_env.environment:
 			_shared_world_env.environment.fog_light_color = fog_color
+
+func add_keyframe_track(property_name: String) -> KeyframeTrack:
+	return _keyframes.add_track(property_name)
+
+func apply_at_time(time: float) -> void:
+	# "intensity" isn't a real @export property on EnvironmentLayer (it's
+	# the private _intensity backing field behind set_intensity()), so it
+	# needs an explicit Callable like LightingRig's energy/color.
+	_keyframes.apply_at_time(self, time, {
+		"intensity": set_intensity,
+	})

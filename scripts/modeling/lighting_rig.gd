@@ -14,7 +14,7 @@ enum Preset { KEY, FILL, RIM, CUSTOM }
 		_apply_preset_defaults()
 
 var light: Light3D
-var keyframes: Dictionary = {} # property name -> KeyframeTrack (Module G integration)
+var _keyframes := LayerKeyframes.new() # Module G integration, see layer_keyframes.gd
 
 const PRESET_DEFAULTS := {
 	Preset.KEY: {"energy": 1.2, "color": Color(1.0, 0.96, 0.9), "angle_deg": 45.0},
@@ -28,6 +28,9 @@ func _ready() -> void:
 		light.shadow_enabled = true
 		add_child(light)
 	_apply_preset_defaults()
+	# Picked up automatically by PlayheadKeyframeDriver — see
+	# scripts/keyframe/playhead_keyframe_driver.gd.
+	add_to_group("keyframed_layers")
 
 func _apply_preset_defaults() -> void:
 	if not light or preset == Preset.CUSTOM:
@@ -48,24 +51,17 @@ func set_energy(e: float) -> void:
 		light.light_energy = e
 
 func add_keyframe_track(property_name: String) -> KeyframeTrack:
-	var kt := KeyframeTrack.new()
-	kt.property = KeyframeTrack.Property.CUSTOM
-	kt.custom_property_name = property_name
-	keyframes[property_name] = kt
-	return kt
+	return _keyframes.add_track(property_name)
 
 func apply_at_time(time: float) -> void:
-	for prop_name in keyframes:
-		var value = keyframes[prop_name].evaluate(time)
-		if value == null:
-			continue
-		match prop_name:
-			"energy":
-				set_energy(value)
-			"color":
-				set_color(value)
-			_:
-				set(prop_name, value)
+	# "energy"/"color" aren't real properties on LightingRig itself (they
+	# only exist on the child Light3D via these setter methods), so they
+	# need an explicit Callable — everything else falls through to
+	# target.set() inside LayerKeyframes.
+	_keyframes.apply_at_time(self, time, {
+		"energy": set_energy,
+		"color": set_color,
+	})
 
 ## Factory helper for the "enter scene" environment UI (Module I) to spawn
 ## a full key+fill+rim rig in one call, rather than three manual adds.

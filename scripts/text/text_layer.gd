@@ -23,7 +23,7 @@ class_name TextLayer
 		if _label:
 			_label.modulate = value
 
-var keyframes: Dictionary = {} # property name -> KeyframeTrack
+var _keyframes := LayerKeyframes.new() # Module G integration, see layer_keyframes.gd
 var _label: Label3D
 
 func _ready() -> void:
@@ -36,19 +36,19 @@ func _ready() -> void:
 	# the stack like any other track, not face the camera — that behavior
 	# only makes sense once ROAM mode (Phase 2) is in play.
 	add_child(_label)
+	# Picked up automatically by PlayheadKeyframeDriver — see
+	# scripts/keyframe/playhead_keyframe_driver.gd.
+	add_to_group("keyframed_layers")
 
 func add_keyframe_track(property_name: String) -> KeyframeTrack:
-	var kt := KeyframeTrack.new()
-	kt.property = KeyframeTrack.Property.CUSTOM
-	kt.custom_property_name = property_name
-	keyframes[property_name] = kt
-	return kt
+	return _keyframes.add_track(property_name)
 
 func apply_at_time(time: float) -> void:
-	for prop_name in keyframes:
-		var value = keyframes[prop_name].evaluate(time)
-		if value != null:
-			set(prop_name, value)
+	# text/font_size/color are real @export properties with their own
+	# setters above, so the default target.set() path in LayerKeyframes
+	# handles all of them — no per-property Callable needed here, unlike
+	# LightingRig.
+	_keyframes.apply_at_time(self, time)
 
 ## TODO Phase 2: swap _label for a SurfaceTool-generated extruded mesh via
 ## runtime_modeler.gd once that pipeline lands, so text can sit in real 3D
