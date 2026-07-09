@@ -11,7 +11,10 @@ class_name TimelineTrackStrip
 ##
 ## Audio-kind tracks additionally render a waveform inside each clip
 ## panel (Module F: "waveform generation for timeline display"), sourced
-## from the shared WaveformGenerator cache — see _draw_waveform().
+## from the shared WaveformGenerator cache — see _draw_waveform(). The
+## generator decodes audio asynchronously (real-time capture for
+## compressed formats, see waveform_generator.gd), so a freshly-added
+## clip draws empty until waveform_ready fires and triggers a redraw.
 ##
 ## Clips with a nonzero transition_duration (Module E) draw a small
 ## diagonal marker at their left edge — see _draw_transition_marker().
@@ -25,6 +28,7 @@ const PIXELS_PER_SECOND := 40.0
 const SNAP_SECONDS := 0.1
 const EDGE_GRAB_PX := 10.0
 const CLIP_HEIGHT := 36.0
+const WAVEFORM_SAMPLES_PER_SECOND := 20 # must match WaveformGenerator's default
 const PLAYHEAD_COLOR := Color(1.0, 0.35, 0.35, 0.9)
 const WAVEFORM_COLOR := Color(0.55, 0.85, 1.0, 0.9)
 const TRANSITION_COLOR := Color(1.0, 0.8, 0.2, 0.85)
@@ -41,7 +45,10 @@ var _pending_value: float = 0.0 # the snapped candidate value, applied on releas
 
 # Shared across all strips so the waveform cache (disk + memory, per
 # WaveformGenerator's own contract: "precompute once per import, cache")
-# isn't duplicated per track row.
+# isn't duplicated per track row. Parented to the tree root (not to any
+# individual strip) so it outlives any single strip being freed when its
+# track is removed, and so its internal AudioStreamPlayer/get_tree() calls
+# have a valid tree to run in.
 static var _waveform_generator: WaveformGenerator
 
 func _ready() -> void:
@@ -49,6 +56,9 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
 	if not is_instance_valid(_waveform_generator):
 		_waveform_generator = WaveformGenerator.new()
+		get_tree().root.add_child.call_deferred(_waveform_generator)
+	if not _waveform_generator.waveform_ready.is_connected(_on_waveform_ready):
+		_waveform_generator.waveform_ready.connect(_on_waveform_ready)
 	if has_node("/root/TimelineData"):
 		var td = get_node("/root/TimelineData")
 		td.track_changed.connect(_on_track_changed)
@@ -105,11 +115,18 @@ func _add_clip_panel(clip, track_kind: String) -> void:
 ## re-sampling per frame; re-sampling live would be needlessly expensive
 ## for a preview that gets thrown away on most drag cancellations. The
 ## _rebuild() on drag-end draws the correct final waveform.
+##
+## Peaks are fetched non-blockingly via get_cached(); if nothing is
+## cached yet, request_waveform() kicks off async generation and this
+## panel simply draws nothing until waveform_ready triggers a redraw
+## (see _on_waveform_ready). Repeated no-op requests while waiting are
+## cheap — WaveformGenerator dedupes in-flight paths.
 func _draw_waveform(panel: Panel, clip) -> void:
 	if clip.path == "":
 		return
-	var peaks := _waveform_generator.get_waveform(clip.path)
+	var peaks := _waveform_generator.get_cached(clip.path)
 	if peaks.is_empty():
+		_waveform_generator.request_waveform(clip.path, WAVEFORM_SAMPLES_PER_SECOND)
 		return
 
 	var w := panel.size.x
@@ -119,11 +136,10 @@ func _draw_waveform(panel: Panel, clip) -> void:
 	if duration <= 0.0:
 		return
 
-	# peaks[] spans the FULL source file at samples_per_second resolution;
-	# only the [in_point, out_point) slice is relevant to this clip.
-	var samples_per_second := 20.0 # must match WaveformGenerator's default
-	var start_index := int(clip.in_point * samples_per_second)
-	var end_index := int(clip.out_point * samples_per_second)
+	# peaks[] spans the FULL source file at WAVEFORM_SAMPLES_PER_SECOND
+	# resolution; only the [in_point, out_point) slice is relevant here.
+	var start_index := int(clip.in_point * WAVEFORM_SAMPLES_PER_SECOND)
+	var end_index := int(clip.out_point * WAVEFORM_SAMPLES_PER_SECOND)
 	end_index = min(end_index, peaks.size())
 	if start_index >= end_index:
 		return
@@ -157,6 +173,17 @@ func _draw_transition_marker(panel: Panel, clip) -> void:
 		Vector2(0, h),
 	])
 	panel.draw_colored_polygon(points, TRANSITION_COLOR)
+
+## Fires once a clip's waveform finishes decoding (WAV: near-instant;
+## compressed formats: after the real-time capture pass completes — see
+## waveform_generator.gd). Redraws every panel on this strip; cheap
+## relative to how rarely this fires (once per unique source path, ever,
+## thanks to WaveformGenerator's disk cache).
+func _on_waveform_ready(_source_path: String, _peaks: PackedFloat32Array) -> void:
+	for clip_id in _panels:
+		var panel: Panel = _panels[clip_id]
+		if is_instance_valid(panel):
+			panel.queue_redraw()
 
 func _on_track_changed(track) -> void:
 	if track.id != track_id or _dragging_clip_id != -1:
