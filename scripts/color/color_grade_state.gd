@@ -147,7 +147,7 @@ func copy_from(other: ColorGradeState) -> void:
 	color_matrix_r = other.color_matrix_r
 	color_matrix_g = other.color_matrix_g
 	color_matrix_b = other.color_matrix_b
-	hs l_curves = other.hsl_curves.duplicate(true) if other.hsl_curves != null else HSLCurves.new()
+	hsl_curves = other.hsl_curves.duplicate(true) if other.hsl_curves != null else HSLCurves.new()
 	_lut = other._lut
 	lut_strength = other.lut_strength
 
