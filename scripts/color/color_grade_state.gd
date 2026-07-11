@@ -117,3 +117,56 @@ func reset() -> void:
 	if hsl_curves != null:
 		hsl_curves.reset_all()
 	clear_lut()
+
+## Returns a full independent copy of this grade, including the loaded
+## LUT reference and the HSLCurves resource (duplicated, not shared —
+## two ColorGradeState instances must never point at the same mutable
+## Curve data, or editing one would silently bend the other's baseline).
+## Resource.duplicate() alone wouldn't carry _lut since it isn't @export;
+## this builds an explicit copy so undo-session snapshots
+## (TimelineData.begin_color_grade_edit) never silently lose either half.
+func clone() -> ColorGradeState:
+	var c := ColorGradeState.new()
+	c.copy_from(self)
+	return c
+
+## Overwrites this instance's fields from `other` in place. Used to
+## restore an undo/redo snapshot onto the *live* Track.color_grade
+## instance rather than swapping the Resource out from under whatever
+## still holds a reference to it (e.g. an open ColorGradePanel).
+func copy_from(other: ColorGradeState) -> void:
+	lift = other.lift
+	gamma = other.gamma
+	gain = other.gain
+	brightness = other.brightness
+	contrast = other.contrast
+	saturation = other.saturation
+	vignette_strength = other.vignette_strength
+	vignette_radius = other.vignette_radius
+	vignette_softness = other.vignette_softness
+	color_matrix_r = other.color_matrix_r
+	color_matrix_g = other.color_matrix_g
+	color_matrix_b = other.color_matrix_b
+	hs l_curves = other.hsl_curves.duplicate(true) if other.hsl_curves != null else HSLCurves.new()
+	_lut = other._lut
+	lut_strength = other.lut_strength
+
+## Field-by-field comparison used to skip pushing a no-op undo entry when
+## a grading session opens and closes without any actual change.
+func equals(other: ColorGradeState) -> bool:
+	if other == null:
+		return false
+	return lift == other.lift and gamma == other.gamma and gain == other.gain \
+		and is_equal_approx(brightness, other.brightness) \
+		and is_equal_approx(contrast, other.contrast) \
+		and is_equal_approx(saturation, other.saturation) \
+		and is_equal_approx(vignette_strength, other.vignette_strength) \
+		and is_equal_approx(vignette_radius, other.vignette_radius) \
+		and is_equal_approx(vignette_softness, other.vignette_softness) \
+		and color_matrix_r == other.color_matrix_r \
+		and color_matrix_g == other.color_matrix_g \
+		and color_matrix_b == other.color_matrix_b \
+		and _lut == other._lut \
+		and is_equal_approx(lut_strength, other.lut_strength) \
+		and (hsl_curves == null) == (other.hsl_curves == null) \
+		and (hsl_curves == null or hsl_curves.is_identity() == other.hsl_curves.is_identity())

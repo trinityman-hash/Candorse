@@ -19,6 +19,8 @@ func _ready() -> void:
 	if has_node("/root/TimelineData"):
 		var td = get_node("/root/TimelineData")
 		td.track_changed.connect(_on_track_changed)
+		if td.tracks.has(track_id):
+			_apply_color_grade(td.tracks[track_id])
 
 func _build_mesh() -> void:
 	var st := SurfaceTool.new()
@@ -104,3 +106,17 @@ func _on_track_changed(track) -> void:
 	curvable = track.curvable
 	if subdiv_changed:
 		_build_mesh()
+	_apply_color_grade(track)
+
+## Module E: pushes this track's ColorGradeState (if any) onto the
+## compositor material every time the track's data changes — covers both
+## an undo/redo restore and a live-preview tick from an open
+## ColorGradePanel (see TimelineData.notify_color_grade_changed), since
+## both paths go through track_changed. No-op while a transition is
+## active: transition_crossfade.gdshader is a separate material with its
+## own uniform set (texture_out/texture_in/blend) and doesn't grade yet —
+## grading through a transition is future Module E work, not a silent
+## drop.
+func _apply_color_grade(track) -> void:
+	if track.color_grade != null and _material != null and not _in_transition:
+		track.color_grade.apply_to_material(_material)

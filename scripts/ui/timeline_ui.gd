@@ -6,6 +6,7 @@ extends Control
 ##
 ## Phase 1 scope: play/pause, scrub, add/remove track, import media,
 ## trim in/out, split, ripple-delete, drag-reorder, undo/redo, transitions.
+## Module E addition: per-track color grading panel toggle.
 ## All of it mutates TimelineData, never touches TimelineStage nodes
 ## directly (Module A single-source-of-truth rule).
 
@@ -137,6 +138,16 @@ func _build_track_row(track) -> Control:
 	ripple_delete_btn.pressed.connect(func(): _ripple_delete_at_playhead(track.id))
 	header.add_child(ripple_delete_btn)
 
+	# Grading applies to a track's video_track_mesh material (Module E) —
+	# audio has no mesh and text is font-to-mesh geometry with its own
+	# material path, so the button only appears where it does something.
+	if track.kind != "audio" and track.kind != "text":
+		var grade_btn := Button.new()
+		grade_btn.text = "Grade"
+		grade_btn.tooltip_text = "Open color grading controls for this track"
+		grade_btn.pressed.connect(func(): _toggle_grade_panel(container, track.id))
+		header.add_child(grade_btn)
+
 	var remove_btn := Button.new()
 	remove_btn.text = "Remove Track"
 	remove_btn.pressed.connect(func():
@@ -149,6 +160,19 @@ func _build_track_row(track) -> Control:
 	container.add_child(strip)
 
 	return container
+
+func _toggle_grade_panel(container: VBoxContainer, track_id: int) -> void:
+	for child in container.get_children():
+		if child is ColorGradePanel:
+			# Closing via re-clicking Grade should still commit the session
+			# the same way the panel's own "Done" button does — there's
+			# only one exit path, not two divergent ones.
+			get_node("/root/TimelineData").commit_color_grade_edit(track_id)
+			child.queue_free()
+			return
+	var panel := ColorGradePanel.new()
+	container.add_child(panel)
+	panel.build_for_track(track_id)
 
 func _open_media_import(track_id: int, kind: String) -> void:
 	_pending_import_track_id = track_id

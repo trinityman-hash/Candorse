@@ -7,7 +7,7 @@ extends Node
 ## Undo/redo: every mutation is expressed as a Command with do()/undo()
 ## closures capturing exactly the state needed to invert it. Nothing here
 ## replays "the type of operation" generically — each command snapshots
-## the minimum data to reverse itself. This avoids the classic bug where
+## the minimum data to reverse it. This avoids the classic bug where
 ## an undo stack stores intent ("removed a track") without enough state
 ## to actually restore it (previous clips, transform, z_depth, etc).
 
@@ -49,6 +49,15 @@ class Track:
 	var curvable: bool = false
 	var clips: Array = [] # Array[Clip]
 	var transform := Transform3D()
+	## Module E: per-track color grade (lift/gamma/gain, brightness/
+	## contrast/saturation, vignette, LUT). Lazily created on first access
+	## via TimelineData.get_or_create_color_grade() rather than eagerly
+	## allocated per track — most tracks are never graded, and a
+	## ColorGradeState carries LUT/curve resources once touched, not worth
+	## paying for on every track by default. null means "no grade
+	## applied" and VideoTrackMesh treats that as a no-op, not an identity
+	## grade re-applied every frame.
+	var color_grade: ColorGradeState = null
 
 	func find_clip(clip_id: int) -> Clip:
 		for c in clips:
@@ -374,6 +383,71 @@ func split_clip(track_id: int, clip_id: int, split_time: float) -> void:
 		track_changed.emit(track)
 
 	_commit(do, undo, "split_clip")
+
+# ---------------------------------------------------------------------------
+# Color grading (Module E) — per-track ColorGradeState with a begin/commit
+# editing-session undo model rather than one undo entry per slider tick.
+##
+## notify_color_grade_changed() is the live-preview path: a ColorGradePanel
+## calls it on every drag tick after mutating Track.color_grade in place
+## directly (same pattern as set_playhead() — continuous UI input doesn't
+## belong in the command stack). begin_color_grade_edit() snapshots the
+## grade when a grading panel opens; commit_color_grade_edit() diffs
+## against that baseline when it closes and pushes exactly one undo/redo
+## entry for the whole session — matching how professional NLEs treat
+## "adjusted the grade" as a single user action. A session that opens and
+## closes with no net change pushes nothing (see ColorGradeState.equals).
+# ---------------------------------------------------------------------------
+
+var _grade_edit_baseline: Dictionary = {} # track_id -> ColorGradeState snapshot
+
+func get_or_create_color_grade(track_id: int) -> ColorGradeState:
+	if not tracks.has(track_id):
+		return null
+	var t: Track = tracks[track_id]
+	if t.color_grade == null:
+		t.color_grade = ColorGradeState.new()
+	return t.color_grade
+
+func begin_color_grade_edit(track_id: int) -> void:
+	var grade := get_or_create_color_grade(track_id)
+	if grade == null:
+		return
+	_grade_edit_baseline[track_id] = grade.clone()
+
+func notify_color_grade_changed(track_id: int) -> void:
+	if tracks.has(track_id):
+		track_changed.emit(tracks[track_id])
+
+func commit_color_grade_edit(track_id: int) -> void:
+	if not _grade_edit_baseline.has(track_id):
+		return
+	var baseline: ColorGradeState = _grade_edit_baseline[track_id]
+	_grade_edit_baseline.erase(track_id)
+	if not tracks.has(track_id):
+		return
+	var track: Track = tracks[track_id]
+	if track.color_grade == null:
+		return
+	var after := track.color_grade.clone()
+	if baseline.equals(after):
+		return # no-op session, nothing to record
+
+	var do := func():
+		var t: Track = tracks[track_id]
+		if t.color_grade == null:
+			t.color_grade = ColorGradeState.new()
+		t.color_grade.copy_from(after)
+		track_changed.emit(t)
+
+	var undo := func():
+		var t: Track = tracks[track_id]
+		if t.color_grade == null:
+			t.color_grade = ColorGradeState.new()
+		t.color_grade.copy_from(baseline)
+		track_changed.emit(t)
+
+	_commit(do, undo, "color_grade")
 
 # ---------------------------------------------------------------------------
 # Undo/redo stack
